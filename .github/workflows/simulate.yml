@@ -1,0 +1,58 @@
+name: Simulate visitors
+
+# Runs every 3 hours. Each run drives a batch of real Chromium sessions
+# through the live site (see sim.mjs). Also runnable by hand.
+on:
+  schedule:
+    - cron: '23 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      sessions:
+        description: 'Number of sessions (blank = random 8-16)'
+        required: false
+      base_url:
+        description: 'Site URL (blank = GitHub Pages URL)'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simulate
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore returning-visitor state
+        uses: actions/cache@v4
+        with:
+          path: .visitor-cache
+          key: visitors-${{ github.run_id }}
+          restore-keys: visitors-
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Jitter start so visits are not on the minute
+        if: github.event_name == 'schedule'
+        run: sleep $((RANDOM % 900))
+      - name: Run sessions
+        env:
+          SESSIONS: ${{ inputs.sessions }}
+          BASE_URL: ${{ inputs.base_url }}
+          CONCURRENCY: 3
+        run: |
+          if [ -z "$SESSIONS" ]; then export SESSIONS=$((8 + RANDOM % 9)); fi
+          if [ -z "$BASE_URL" ]; then unset BASE_URL; fi
+          node sim.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sessions-${{ github.run_id }}
+          path: out/
+          retention-days: 14
