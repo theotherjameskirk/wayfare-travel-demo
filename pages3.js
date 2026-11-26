@@ -54,11 +54,23 @@
     { re: /adventure|hike|nature|mountain/i, ids: ['banff-comfort', 'reykjavik-comfort', 'cusco-explorer'], say: 'For trails and big views:' },
     { re: /family|kids/i, ids: ['sydney-comfort', 'new-york-comfort', 'rome-comfort'], say: 'Family-friendly choices with easy logistics:' }
   ];
+  // Pendo Track Agent: reports planner prompts and replies when the Pendo agent is on the page.
+  var AGENT_ID = 'Z9d-7XRFxVaMG9Q3FALsImzc4L0';
+  function newId(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+  }
+  function trackAgent(eventType, metadata) {
+    if (!window.pendo || typeof window.pendo.trackAgent !== 'function') return;
+    metadata.agentId = AGENT_ID;
+    try { window.pendo.trackAgent(eventType, metadata); } catch (e) {}
+  }
   function chat(container, full) {
+    var conversationId = newId('conversation');
     var log = h('div', { class: 'log', id: 'chat-log' });
     var input = h('input', { id: 'chat-input', placeholder: 'e.g. a warm beach trip under $1500', 'aria-label': 'Ask the AI planner' });
     var send = h('button', { class: 'btn', type: 'submit', id: 'chat-send' }, ['Send']);
-    var busy = false;
+    var busy = false, fromChip = false;
     function say(text, who, ids) {
       var m = h('div', { class: 'msg ' + who }, [text]);
       if (ids) ids.forEach(function (id) {
@@ -69,19 +81,25 @@
     }
     say('Hi! I am the Wayfare planner. Tell me what you want from a trip and I will suggest options.', 'a');
     var chips = h('div', { class: 'chips', style: 'padding:0 12px' }, ['A beach trip', 'Great food', 'Romantic getaway', 'Under $1000'].map(function (x) {
-      return h('button', { class: 'chip', type: 'button', onclick: function () { input.value = x; form.requestSubmit(); } }, [x]);
+      return h('button', { class: 'chip', type: 'button', onclick: function () { input.value = x; fromChip = true; form.requestSubmit(); } }, [x]);
     }));
     var form = h('form', {}, [input, send]);
     form.addEventListener('submit', function (e) {
-      e.preventDefault(); var q = input.value.trim(); if (!q || busy) return;
+      e.preventDefault(); var q = input.value.trim(); var suggested = fromChip; fromChip = false; if (!q || busy) return;
       input.value = ''; say(q, 'u'); busy = true; send.disabled = true;
+      trackAgent('prompt', { conversationId: conversationId, messageId: newId('prompt'), content: q, suggestedPrompt: suggested, fileUploaded: false });
       var typing = h('div', { class: 'msg a muted' }, ['Thinking...']); log.appendChild(typing);
+      function reply(text, ids) {
+        say(text, 'a', ids);
+        var titles = (ids || []).map(function (id) { var t = WF.trip(id); return t ? t.title : null; }).filter(Boolean);
+        trackAgent('agent_response', { conversationId: conversationId, messageId: newId('agent_response'), content: titles.length ? text + ' ' + titles.join(', ') : text });
+      }
       setTimeout(function () {
         typing.remove(); busy = false; send.disabled = false;
-        if (WF.chance(0.2)) { say('Sorry, I am having trouble right now. Please try again.', 'a'); return; }
+        if (WF.chance(0.2)) { reply('Sorry, I am having trouble right now. Please try again.'); return; }
         var hit = CANNED.filter(function (c) { return c.re.test(q); })[0];
-        if (hit) { var ids = hit.ids; if (WF.chance(0.3)) ids = ids.concat(['santorini-luxe', 'paris-explorer'].filter(function (i) { return WF.trip(i).soldOut; })); say(hit.say, 'a', ids); }
-        else say('I can help with beaches, food, budget, romance, adventure or family trips. What matters most to you?', 'a');
+        if (hit) { var ids = hit.ids; if (WF.chance(0.3)) ids = ids.concat(['santorini-luxe', 'paris-explorer'].filter(function (i) { return WF.trip(i).soldOut; })); reply(hit.say, ids); }
+        else reply('I can help with beaches, food, budget, romance, adventure or family trips. What matters most to you?');
       }, 900 + Math.random() * 1800);
     });
     container.appendChild(h('div', { class: 'hd' }, [h('span', {}, ['Wayfare AI planner']), full ? null : h('button', { class: 'chip', type: 'button', id: 'chat-close', onclick: function () { container.remove(); } }, ['Close'])]));
