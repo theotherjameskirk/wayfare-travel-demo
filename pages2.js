@@ -49,9 +49,9 @@
     ]);
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      var ok = true;
+      var ok = true, invalid = [];
       Object.keys(f).forEach(function (k) { f[k].err.textContent = ''; });
-      function bad(x, m) { f[x].err.textContent = m; ok = false; }
+      function bad(x, m) { f[x].err.textContent = m; ok = false; invalid.push(f[x].input.id); }
       if (!f.first.input.value.trim()) bad('first', 'Required');
       if (!f.last.input.value.trim()) bad('last', 'Required');
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email.input.value)) bad('email', 'Enter a valid email');
@@ -60,7 +60,11 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(f.dob.input.value)) bad('dob', 'Use YYYY-MM-DD');
       if (!/^[A-Z0-9]{8,9}$/.test(f.pass.input.value)) bad('pass', 'Passport must be 8-9 letters or digits, uppercase');
       if (!f.nat.input.value.trim()) bad('nat', 'Required');
-      if (!ok) { form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake'); return; }
+      if (!ok) {
+        // Pendo Track Event: traveler form failed validation. Field names only, never the entered values.
+        if (window.pendo) pendo.track('traveler_details_validation_failed', { tripId: t.id, invalidFields: invalid, invalidFieldCount: invalid.length, isSignedIn: !!WF.state().user });
+        form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake'); return;
+      }
       b.traveler = { first: f.first.input.value, last: f.last.input.value, email: f.email.input.value, phone: f.phone.input.value };
       WF.save({ booking: b }); WF.go('/book/' + t.id + '/extras');
     });
@@ -99,7 +103,13 @@
     var promoIn = h('input', { id: 'promo', placeholder: 'Promo code' }), promoMsg = h('div', { class: 'err', id: 'promo-msg' }), promoTries = 0;
     var promoBtn = h('button', { type: 'button', class: 'btn ghost', id: 'promo-apply', onclick: function () {
       var c = promoIn.value.trim().toUpperCase(); promoTries++;
-      if (WF.D.promos[c] && promoTries > 1) { b.promo = c; WF.save({ booking: b }); side(); promoMsg.textContent = ''; return; }
+      if (WF.D.promos[c] && promoTries > 1) {
+        var already = b.promo === c;
+        b.promo = c; WF.save({ booking: b }); var ps = side(); promoMsg.textContent = '';
+        // Pendo Track Event: promo code accepted and discount applied (once per newly applied code).
+        if (!already && window.pendo) pendo.track('promo_code_applied', { promoCode: c, discountAmount: ps.disc, total: ps.total, tripId: t.id, attempts: promoTries });
+        return;
+      }
       if (promoTries > 2) promoMsg.textContent = 'That code is not valid for this trip.'; // first two clicks: nothing at all
     } }, ['Apply']);
     var msg = h('div', { id: 'pay-msg' });
@@ -114,19 +124,30 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault(); if (busy) return;
       Object.keys(f).forEach(function (k) { f[k].err.textContent = ''; });
-      var ok = true;
-      if (!f.name.input.value.trim()) { f.name.err.textContent = 'Required'; ok = false; }
-      if (f.num.input.value.replace(/\D/g, '').length < 15) { f.num.err.textContent = 'Card number looks too short'; ok = false; }
-      if (!/^\d{2}\/\d{2}$/.test(f.exp.input.value)) { f.exp.err.textContent = 'Use MM/YY'; ok = false; }
-      if (!/^\d{3}$/.test(f.cvc.input.value)) { f.cvc.err.textContent = 'Invalid security code'; ok = false; } // rejects 4-digit codes
-      if (!/^\d{5}$/.test(f.zip.input.value)) { f.zip.err.textContent = 'Enter a 5-digit ZIP'; ok = false; }
-      if (!ok) return;
+      var ok = true, invalid = [];
+      if (!f.name.input.value.trim()) { f.name.err.textContent = 'Required'; ok = false; invalid.push('cardname'); }
+      if (f.num.input.value.replace(/\D/g, '').length < 15) { f.num.err.textContent = 'Card number looks too short'; ok = false; invalid.push('cardnumber'); }
+      if (!/^\d{2}\/\d{2}$/.test(f.exp.input.value)) { f.exp.err.textContent = 'Use MM/YY'; ok = false; invalid.push('exp'); }
+      if (!/^\d{3}$/.test(f.cvc.input.value)) { f.cvc.err.textContent = 'Invalid security code'; ok = false; invalid.push('cvc'); } // rejects 4-digit codes
+      if (!/^\d{5}$/.test(f.zip.input.value)) { f.zip.err.textContent = 'Enter a 5-digit ZIP'; ok = false; invalid.push('zip'); }
+      function trackPayFailed(type, code, fields) {
+        // Pendo Track Event: payment attempt failed (card validation or processor error). Field names only.
+        var sm = summary(b, t);
+        if (window.pendo) pendo.track('payment_failed', { tripId: t.id, failureType: type, errorCode: code, invalidFields: fields, total: sm.total, promo: b.promo || 'none', guests: sm.guests });
+      }
+      if (!ok) { trackPayFailed('validation', 'validation', invalid); return; }
       busy = true; pay.innerHTML = '<span class="spin"></span>Processing...'; msg.innerHTML = '';
       setTimeout(function () {
         busy = false; pay.textContent = 'Pay now';
-        if (WF.chance(0.42)) { msg.appendChild(h('div', { class: 'banner bad', id: 'pay-error' }, ['Payment could not be processed (E-402). Please try again or use a different card.'])); return; }
+        if (WF.chance(0.42)) {
+          msg.appendChild(h('div', { class: 'banner bad', id: 'pay-error' }, ['Payment could not be processed (E-402). Please try again or use a different card.']));
+          trackPayFailed('processor', 'E-402', []);
+          return;
+        }
         var s = side(), ref = 'WF-' + (50000 + Math.floor(Math.random() * 49999));
         var all = WF.state().bookings || []; all.unshift({ ref: ref, trip: t.id, date: 'Just now', total: s.total, status: 'Upcoming' });
+        // Pendo Track Event: payment succeeded and a booking reference was created.
+        if (window.pendo) pendo.track('booking_completed', { ref: ref, tripId: t.id, total: s.total, base: s.base, ex: s.ex, disc: s.disc, promo: b.promo || 'none', extras: (b.extras || []).slice(), guests: s.guests, nights: t.nights, region: t.region, stars: t.stars });
         WF.save({ bookings: all, booking: null }); WF.go('/confirmation/' + ref);
       }, 2600);
     });

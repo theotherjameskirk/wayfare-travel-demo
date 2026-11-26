@@ -116,6 +116,8 @@
           var saved = s.saved || []; var i = saved.indexOf(t.id);
           if (i >= 0) saved.splice(i, 1); else saved.push(t.id);
           WF.save({ saved: saved }); heart.textContent = saved.indexOf(t.id) >= 0 ? '♥' : '♡';
+          // Pendo Track Event: signed-in visitor saved or removed a trip.
+          if (window.pendo) pendo.track('trip_saved', { tripId: t.id, action: i >= 0 ? 'removed' : 'saved', savedCount: saved.length, region: t.region, price: t.price });
         } }, ['♡']);
         grid.appendChild(h('div', { class: 'card tile rel', 'data-trip': t.id, style: 'cursor:pointer', onclick: function () { WF.go('/trip/' + t.id); } }, [
           pic(t), heart,
@@ -128,10 +130,16 @@
       });
       list.appendChild(grid);
       if (!items.length) list.appendChild(h('div', { class: 'card', id: 'empty' }, ['No trips match. Try widening your filters.']));
+      return items.length;
     }
     function load() {
       list.innerHTML = '<div class="muted">Finding trips...</div>';
-      setTimeout(function () { if (!WF.__failedOnce && WF.chance(0.12)) { failed = true; WF.__failedOnce = true; } drawList(); }, 500 + Math.random() * 600);
+      setTimeout(function () {
+        if (!WF.__failedOnce && WF.chance(0.12)) { failed = true; WF.__failedOnce = true; }
+        var count = drawList();
+        // Pendo Track Event: search results finished loading (or failed with E-503). Fires once per load, not on filter changes.
+        if (window.pendo) pendo.track('trip_search_results_loaded', { dest: (q.dest || '').slice(0, 100), start: q.start || '', end: q.end || '', guests: +(q.guests || 0), resultsCount: failed ? 0 : count, region: f.region, maxPrice: f.max, tag: f.tag, sort: f.sort, loadFailed: failed });
+      }, 500 + Math.random() * 600);
     }
     drawFilters();
     main.appendChild(h('div', { class: 'layout', style: 'margin-top:16px' }, [panel, list]));
@@ -154,6 +162,8 @@
         if (WF.chance(0.16)) {
           btn.textContent = 'Check availability & book';
           msg.appendChild(h('div', { class: 'banner warn', id: 'avail-error' }, ['Prices changed while we checked (E-409). Please try again.']));
+          // Pendo Track Event: availability check failed and the visitor stays on the trip page.
+          if (window.pendo) pendo.track('availability_check_failed', { tripId: t.id, errorCode: 'E-409', price: t.price, guests: guests, total: total, region: t.region });
           return;
         }
         WF.save({ booking: { tripId: t.id, traveler: null, extras: [], promo: null } });

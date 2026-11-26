@@ -22,7 +22,10 @@
       var nm = email.value.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
       if (nm.split(' ').length < 2) nm += ' Traveler';
       WF.save({ user: { email: email.value, name: nm } });
-      var b = WF.state().booking; WF.go(b && b.tripId ? '/checkout' : '/account');
+      var b = WF.state().booking, dest = b && b.tripId ? '/checkout' : '/account';
+      // Pendo Track Event: sign-in succeeded. Records whether it resumes an in-progress booking.
+      if (window.pendo) pendo.track('sign_in_completed', { redirectTo: dest, hasBookingInProgress: !!(b && b.tripId) });
+      WF.go(dest);
     });
     main.appendChild(form);
   });
@@ -47,18 +50,18 @@
 
   // ---- AI assistant ----
   var CANNED = [
-    { re: /beach|sun|warm|island/i, ids: ['santorini-comfort', 'bali-comfort', 'sydney-explorer'], say: 'For warm water and slow days, these three fit well:' },
-    { re: /food|eat|cuisine|taco|pasta/i, ids: ['mexico-city-comfort', 'rome-explorer', 'tokyo-comfort'], say: 'Food-first picks, from street tacos to handmade pasta:' },
-    { re: /cheap|budget|afford|under/i, ids: ['mexico-city-explorer', 'marrakech-explorer', 'lisbon-explorer'], say: 'Best value right now:' },
-    { re: /romantic|honeymoon|couple/i, ids: ['paris-luxe', 'santorini-luxe', 'kyoto-luxe'], say: 'Romantic options with great stays:' },
-    { re: /adventure|hike|nature|mountain/i, ids: ['banff-comfort', 'reykjavik-comfort', 'cusco-explorer'], say: 'For trails and big views:' },
-    { re: /family|kids/i, ids: ['sydney-comfort', 'new-york-comfort', 'rome-comfort'], say: 'Family-friendly choices with easy logistics:' }
+    { intent: 'beach', re: /beach|sun|warm|island/i, ids: ['santorini-comfort', 'bali-comfort', 'sydney-explorer'], say: 'For warm water and slow days, these three fit well:' },
+    { intent: 'food', re: /food|eat|cuisine|taco|pasta/i, ids: ['mexico-city-comfort', 'rome-explorer', 'tokyo-comfort'], say: 'Food-first picks, from street tacos to handmade pasta:' },
+    { intent: 'budget', re: /cheap|budget|afford|under/i, ids: ['mexico-city-explorer', 'marrakech-explorer', 'lisbon-explorer'], say: 'Best value right now:' },
+    { intent: 'romance', re: /romantic|honeymoon|couple/i, ids: ['paris-luxe', 'santorini-luxe', 'kyoto-luxe'], say: 'Romantic options with great stays:' },
+    { intent: 'adventure', re: /adventure|hike|nature|mountain/i, ids: ['banff-comfort', 'reykjavik-comfort', 'cusco-explorer'], say: 'For trails and big views:' },
+    { intent: 'family', re: /family|kids/i, ids: ['sydney-comfort', 'new-york-comfort', 'rome-comfort'], say: 'Family-friendly choices with easy logistics:' }
   ];
   function chat(container, full) {
     var log = h('div', { class: 'log', id: 'chat-log' });
     var input = h('input', { id: 'chat-input', placeholder: 'e.g. a warm beach trip under $1500', 'aria-label': 'Ask the AI planner' });
     var send = h('button', { class: 'btn', type: 'submit', id: 'chat-send' }, ['Send']);
-    var busy = false;
+    var busy = false, fromChip = false;
     function say(text, who, ids) {
       var m = h('div', { class: 'msg ' + who }, [text]);
       if (ids) ids.forEach(function (id) {
@@ -69,19 +72,26 @@
     }
     say('Hi! I am the Wayfare planner. Tell me what you want from a trip and I will suggest options.', 'a');
     var chips = h('div', { class: 'chips', style: 'padding:0 12px' }, ['A beach trip', 'Great food', 'Romantic getaway', 'Under $1000'].map(function (x) {
-      return h('button', { class: 'chip', type: 'button', onclick: function () { input.value = x; form.requestSubmit(); } }, [x]);
+      return h('button', { class: 'chip', type: 'button', onclick: function () { fromChip = true; input.value = x; form.requestSubmit(); } }, [x]);
     }));
     var form = h('form', {}, [input, send]);
     form.addEventListener('submit', function (e) {
-      e.preventDefault(); var q = input.value.trim(); if (!q || busy) return;
+      e.preventDefault(); var viaChip = fromChip; fromChip = false;
+      var q = input.value.trim(); if (!q || busy) return;
       input.value = ''; say(q, 'u'); busy = true; send.disabled = true;
       var typing = h('div', { class: 'msg a muted' }, ['Thinking...']); log.appendChild(typing);
       setTimeout(function () {
         typing.remove(); busy = false; send.disabled = false;
-        if (WF.chance(0.2)) { say('Sorry, I am having trouble right now. Please try again.', 'a'); return; }
         var hit = CANNED.filter(function (c) { return c.re.test(q); })[0];
-        if (hit) { var ids = hit.ids; if (WF.chance(0.3)) ids = ids.concat(['santorini-luxe', 'paris-explorer'].filter(function (i) { return WF.trip(i).soldOut; })); say(hit.say, 'a', ids); }
-        else say('I can help with beaches, food, budget, romance, adventure or family trips. What matters most to you?', 'a');
+        // Pendo Track Event: planner finished responding. Sends the matched intent, never the raw prompt.
+        function trackResponse(outcome, ids) {
+          ids = ids || [];
+          if (window.pendo) pendo.track('ai_planner_response_received', { outcome: outcome, intent: hit ? hit.intent : 'none', recommendedTripIds: ids, recommendedCount: ids.length,
+            soldOutCount: ids.filter(function (i) { var t = WF.trip(i); return t && t.soldOut; }).length, surface: full ? 'assistant_page' : 'floating_chat', usedSuggestionChip: viaChip });
+        }
+        if (WF.chance(0.2)) { say('Sorry, I am having trouble right now. Please try again.', 'a'); trackResponse('error'); return; }
+        if (hit) { var ids = hit.ids; if (WF.chance(0.3)) ids = ids.concat(['santorini-luxe', 'paris-explorer'].filter(function (i) { return WF.trip(i).soldOut; })); say(hit.say, 'a', ids); trackResponse('recommendations', ids); }
+        else { say('I can help with beaches, food, budget, romance, adventure or family trips. What matters most to you?', 'a'); trackResponse('fallback'); }
       }, 900 + Math.random() * 1800);
     });
     container.appendChild(h('div', { class: 'hd' }, [h('span', {}, ['Wayfare AI planner']), full ? null : h('button', { class: 'chip', type: 'button', id: 'chat-close', onclick: function () { container.remove(); } }, ['Close'])]));
