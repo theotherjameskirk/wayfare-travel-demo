@@ -23,7 +23,7 @@ exactly one place: inside the head of index.html, just before the closing head t
 
 - sim.mjs drives real Chromium sessions (Playwright), not API calls.
 - .github/workflows/simulate.yml runs every 3 hours (cron 23 */3 * * *, plus a random
-  start delay) with 8-16 sessions per run, roughly 80-130 sessions a day. Run it by
+  start delay) with 8-16 sessions per run, about 100 sessions a day (64-128). Run it by
   hand from the Actions tab too.
 - Mix: personas (browser 45%, researcher 30%, booker 25%), devices (desktop, laptop,
   iPhone 13, Pixel 7, iPad), traffic sources (direct, organic, paid, Instagram, TikTok,
@@ -37,9 +37,11 @@ exactly one place: inside the head of index.html, just before the closing head t
 
 ## Built-in funnel drop-offs
 
-Expected: landing > search started 75% > dates done ~80% > results ~90% > trip viewed ~55%
-> book clicked ~45% > traveler form ~65% > extras ~90% > pay attempted ~60% > booked.
-Biggest leaks: date picker, trip details, traveler form, checkout, payment errors.
+Modeled share of sessions reaching each step (Monte Carlo of the probabilities in sim-lib.mjs;
+real runs vary): search started 71%, search submitted 51%, trip viewed 27%, traveler form 16%,
+form submitted 11%, checkout 10%, pay attempted 7%, booked 5.5% (roughly 5-6 bookings a day).
+Biggest leaks: date picker (28% of searchers lost), results to trip details, traveler form
+(30% lost), checkout (35% lost before paying) and payment errors (19% of payers give up).
 
 ## Built-in friction
 
