@@ -22,6 +22,7 @@
       var nm = email.value.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
       if (nm.split(' ').length < 2) nm += ' Traveler';
       WF.save({ user: { email: email.value, name: nm } });
+      WF.identify(WF.state().user);
       var b = WF.state().booking; WF.go(b && b.tripId ? '/checkout' : '/account');
     });
     main.appendChild(form);
@@ -31,7 +32,7 @@
     var s = WF.state();
     if (!s.user) { WF.go('/login', true); return; }
     var rows = (s.bookings || []).concat(WF.D.pastBookings);
-    main.appendChild(h('div', { class: 'row' }, [h('h1', { style: 'margin:0' }, ['Hi, ' + s.user.name.split(' ')[0]]), h('button', { class: 'btn ghost', id: 'signout', onclick: function () { WF.save({ user: null }); WF.go('/'); } }, ['Sign out'])]));
+    main.appendChild(h('div', { class: 'row' }, [h('h1', { style: 'margin:0' }, ['Hi, ' + s.user.name.split(' ')[0]]), h('button', { class: 'btn ghost', id: 'signout', onclick: function () { WF.save({ user: null }); WF.clearSession(); WF.go('/'); } }, ['Sign out'])]));
     main.appendChild(h('h3', {}, ['My trips']));
     var tb = h('table', { id: 'trips-table' }, [h('tr', {}, ['Ref', 'Trip', 'When', 'Total', 'Status'].map(function (x) { return h('th', {}, [x]); }))]);
     rows.forEach(function (r) { var t = WF.trip(r.trip); tb.appendChild(h('tr', {}, [r.ref, t ? t.title : r.trip, r.date, WF.money(r.total), r.status].map(function (x) { return h('td', {}, [x]); }))); });
@@ -42,7 +43,7 @@
     var nm = h('input', { id: 'profile-name', value: s.user.name }), note = h('span', { class: 'muted' });
     main.appendChild(h('h3', {}, ['Profile']));
     main.appendChild(h('div', { class: 'card' }, [h('label', { class: 'muted' }, ['Display name']), nm,
-      h('div', { class: 'row', style: 'margin-top:10px' }, [note, h('button', { class: 'btn', id: 'profile-save', onclick: function () { note.textContent = 'Saving...'; setTimeout(function () { var u = WF.state().user; u.name = nm.value; WF.save({ user: u }); note.textContent = 'Saved'; }, 1200); } }, ['Save'])])]));
+      h('div', { class: 'row', style: 'margin-top:10px' }, [note, h('button', { class: 'btn', id: 'profile-save', onclick: function () { note.textContent = 'Saving...'; setTimeout(function () { var u = WF.state().user; u.name = nm.value; WF.save({ user: u }); WF.identify(u); note.textContent = 'Saved'; }, 1200); } }, ['Save'])])]));
   });
 
   // ---- AI assistant ----
