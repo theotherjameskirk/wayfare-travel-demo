@@ -1,0 +1,8 @@
+{
+  "name": "wayfare-travel-demo",
+  "private": true,
+  "type": "module",
+  "description": "Synthetic AI-native travel app plus a Playwright traffic simulator. All data is fake.",
+  "scripts": { "sim": "node sim.mjs", "serve": "python3 -m http.server 8080" },
+  "dependencies": { "playwright": "^1.50.0" }
+}

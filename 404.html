@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Wayfare</title>
+<script>
+// GitHub Pages SPA fallback: remember the path, then load the app shell.
+var base = location.pathname.split('/').slice(0, 2).join('/') + '/';
+sessionStorage.setItem('wf_redirect', location.pathname + location.search + location.hash);
+location.replace(base);
+</script></head><body></body></html>
