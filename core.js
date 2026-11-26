@@ -1,4 +1,4 @@
-/* Wayfare core: tiny router, state, helpers, date picker. No analytics. */
+/* Wayfare core: tiny router, state, helpers, date picker, Novus by Pendo wiring. */
 (function () {
   var scriptSrc = document.currentScript.src;
   var BASE = new URL('./', scriptSrc).pathname; // e.g. /wayfare-travel-demo/
@@ -36,6 +36,23 @@
     Object.keys(patch).forEach(function (k) { s[k] = patch[k]; });
     try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
     return s;
+  };
+
+  // Novus by Pendo: register the signed-in traveler. Email is the only unique ID.
+  WF.identify = function (u) {
+    if (!window.pendo || !u || !u.email) return;
+    window.pendo.identify({
+      visitor: {
+        id: u.email,
+        email: u.email,
+        full_name: u.name
+      }
+    });
+  };
+  // Novus by Pendo: reset to a fresh anonymous visitor on sign-out.
+  // clearSession isn't stubbed by the install snippet, so check the agent has loaded.
+  WF.clearSession = function () {
+    if (window.pendo && typeof window.pendo.clearSession === 'function') window.pendo.clearSession();
   };
 
   WF.route = function (pattern, fn) {
@@ -176,6 +193,11 @@
   document.addEventListener('DOMContentLoaded', function () {
     var r = sessionStorage.getItem('wf_redirect');
     if (r) { sessionStorage.removeItem('wf_redirect'); history.replaceState({}, '', r); }
+    // Novus by Pendo: boot once as an anonymous visitor, then identify a traveler restored from storage.
+    if (window.pendo) {
+      window.pendo.initialize({ visitor: { id: '' } });
+      WF.identify(WF.state().user);
+    }
     render();
   });
 })();
